@@ -1,4 +1,5 @@
 
+.PHONY: install uninstall dev clean check-env bdist sdist release
 .DEFAULT_GOAL=dev
 
 install:
@@ -22,4 +23,19 @@ dev: check-env
 		--log-level=DEBUG \
 		$(NB_OPTS)
 
-.PHONY: install uninstall dev
+clean: ## Make a clean source tree
+	rm -rf dist
+	rm -rf build
+	rm -rf *.egg-info
+
+bdist: ## Make a dist/*.whl binary distribution
+	python setup.py bdist_wheel $(POST_SDIST) \
+		&& rm -rf *.egg-info
+
+sdist: ## Make a dist/*.tar.gz source distribution
+	python setup.py sdist $(POST_SDIST) \
+		&& rm -rf *.egg-info
+
+release: POST_SDIST=upload
+release: bdist sdist ## Make a wheel + source release on PyPI
+

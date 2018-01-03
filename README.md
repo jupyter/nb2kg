@@ -21,13 +21,21 @@ jupyter serverextension list
 
 ## Install
 
-To install the **nb2kg** extension in an existing Notebook server environment:
+To install the _released_ **nb2kg** extension in an existing Notebook server environment:
 
 ```
-pip install "git+https://github.com/jupyter-incubator/nb2kg.git#egg=nb2kg&subdirectory=nb2kg"
+pip install nb2kg
+```
+
+To install the _latest_ **nb2kg** extension in an existing Notebook server environment:
+```
+pip install "git+https://github.com/jupyter-incubator/nb2kg.git#egg=nb2kg"
+```
+
+Once the package has been installed, it must then be registered as an extension:
+```
 jupyter serverextension enable --py nb2kg --sys-prefix
 ```
-
 ## Run Notebook server
 
 When you run the Notebook server with the **nb2kg** extension enabled, you must set the `KG_URL` environment variable to the URL of the kernel or enterprise gateway _and_ you must override the default kernel, kernel spec, and session managers:
