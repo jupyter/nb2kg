@@ -37,12 +37,7 @@ KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
 KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
 
 
-@gen.coroutine
-def fetch_kg(endpoint, **kwargs):
-    """Make an async request to kernel gateway endpoint."""
-    client = AsyncHTTPClient()
-    url = url_path_join(KG_URL, endpoint)
-
+def load_connection_args(**kwargs):
     if KG_CLIENT_CERT:
         kwargs["client_key"] = kwargs.get("client_key", KG_CLIENT_KEY)
         kwargs["client_cert"] = kwargs.get("client_cert", KG_CLIENT_CERT)
@@ -54,6 +49,15 @@ def fetch_kg(endpoint, **kwargs):
     kwargs['validate_cert'] = kwargs.get('validate_cert', VALIDATE_KG_CERT)
     kwargs['auth_username'] = kwargs.get('auth_username', KG_HTTP_USER)
     kwargs['auth_password'] = kwargs.get('auth_password', KG_HTTP_PASS)
+    return kwargs
+
+@gen.coroutine
+def fetch_kg(endpoint, **kwargs):
+    """Make an async request to kernel gateway endpoint."""
+    client = AsyncHTTPClient()
+    url = url_path_join(KG_URL, endpoint)
+
+    kwargs = load_connection_args(**kwargs)
 
     response = yield client.fetch(url, **kwargs)
     raise gen.Return(response)
@@ -245,18 +249,15 @@ class RemoteKernelManager(MappingKernelManager):
 
     def shutdown_all(self):
         """Shutdown all kernels."""
-        # TODO: Is it appropriate to do this?  Is this notebook server the
-        # only client of the kernel gateway?
-        # TODO: We also have to make this sync because the NotebookApp does not 
-        # wait for async.
+        # Note: We have to make this sync because the NotebookApp does not wait for async.
+        kwargs = {'method': 'DELETE'}
+        kwargs = load_connection_args(**kwargs)
         client = HTTPClient()
         for kernel_id in self._kernels.keys():
             kernel_url = url_path_join(KG_URL, self._kernel_id_to_url(kernel_id))
             self.log.info("Request delete kernel at: %s", kernel_url)
             try:
-                response = client.fetch(kernel_url, headers=KG_HEADERS,
-                                        method='DELETE', validate_cert=VALIDATE_KG_CERT,
-                                        auth_username=KG_HTTP_USER, auth_password=KG_HTTP_PASS)
+                response = client.fetch(kernel_url, **kwargs)
             except HTTPError:
                 pass
             self.log.info("Delete kernel response: %d %s", 
