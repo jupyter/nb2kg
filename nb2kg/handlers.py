@@ -31,8 +31,8 @@ KG_CLIENT_KEY = os.getenv('KG_CLIENT_KEY')
 KG_CLIENT_CERT = os.getenv('KG_CLIENT_CERT')
 KG_CLIENT_CA = os.getenv('KG_CLIENT_CA')
 
-KG_HTTP_USER = os.getenv('KG_HTTP_USER', '')
-KG_HTTP_PASS = os.getenv('KG_HTTP_PASS', '')
+KG_HTTP_USER = os.getenv('KG_HTTP_USER')
+KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 
 # Get env variables to handle timeout of request and connection
 KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
@@ -121,11 +121,13 @@ class KernelGatewayWSClient(LoggingConfigurable):
         parameters = {
           "headers" : KG_HEADERS,
           "validate_cert" : VALIDATE_KG_CERT,
-          "auth_username" : KG_HTTP_USER, 
-          "auth_password" : KG_HTTP_PASS,
           "connect_timeout" : KG_CONNECT_TIMEOUT,
           "request_timeout" : KG_REQUEST_TIMEOUT
         }
+        if KG_HTTP_USER:
+            parameters["auth_username"] = KG_HTTP_USER
+        if KG_HTTP_PASS:
+            parameters["auth_password"] = KG_HTTP_PASS
         if KG_CLIENT_KEY:
             parameters["client_key"] = KG_CLIENT_KEY
             parameters["client_cert"] = KG_CLIENT_CERT

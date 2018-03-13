@@ -30,8 +30,8 @@ KG_CLIENT_KEY = os.getenv('KG_CLIENT_KEY')
 KG_CLIENT_CERT = os.getenv('KG_CLIENT_CERT')
 KG_CLIENT_CA = os.getenv('KG_CLIENT_CA')
 
-KG_HTTP_USER = os.getenv('KG_HTTP_USER', '')
-KG_HTTP_PASS = os.getenv('KG_HTTP_PASS', '')
+KG_HTTP_USER = os.getenv('KG_HTTP_USER')
+KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 
 KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
 KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
@@ -47,8 +47,10 @@ def load_connection_args(**kwargs):
     kwargs['request_timeout'] = kwargs.get('request_timeout', KG_REQUEST_TIMEOUT)
     kwargs['headers'] = kwargs.get('headers', KG_HEADERS)
     kwargs['validate_cert'] = kwargs.get('validate_cert', VALIDATE_KG_CERT)
-    kwargs['auth_username'] = kwargs.get('auth_username', KG_HTTP_USER)
-    kwargs['auth_password'] = kwargs.get('auth_password', KG_HTTP_PASS)
+    if KG_HTTP_USER:
+        kwargs['auth_username'] = kwargs.get('auth_username', KG_HTTP_USER)
+    if KG_HTTP_PASS:
+        kwargs['auth_password'] = kwargs.get('auth_password', KG_HTTP_PASS)
     return kwargs
 
 @gen.coroutine
