@@ -443,11 +443,14 @@ class SessionManager(BaseSessionManager):
 
         model = {
             'id': row['session_id'],
-            'notebook': {
-                'path': row['path']
-            },
+            'path': row['path'],
+            'name': row['name'],
+            'type': row['type'],
             'kernel': kernel
         }
+        if row['type'] == 'notebook':  # Provide the deprecated API.
+            model['notebook'] = {'path': row['path'], 'name': row['name']}
+
         raise gen.Return(model)
 
     @gen.coroutine
