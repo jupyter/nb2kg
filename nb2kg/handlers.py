@@ -3,8 +3,9 @@
 
 import os
 import json
+import logging
 
-from notebook.base.handlers import APIHandler, IPythonHandler, json_errors
+from notebook.base.handlers import APIHandler, IPythonHandler
 from notebook.utils import url_path_join
 
 from tornado import gen, web
@@ -12,7 +13,7 @@ from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 from tornado.websocket import WebSocketHandler, websocket_connect
 from tornado.httpclient import HTTPRequest
-from tornado.escape import url_escape
+from tornado.escape import url_escape, json_decode, utf8
 
 from ipython_genutils.py3compat import cast_unicode
 from jupyter_client.session import Session
@@ -41,11 +42,12 @@ KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
 
 class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
 
-    def set_default_headers(self):
-        """Undo the set_default_headers in IPythonHandler
+    session = None
+    gateway = None
+    kernel_id = None
 
-        which doesn't make sense for websockets
-        """
+    def set_default_headers(self):
+        """Undo the set_default_headers in IPythonHandler which doesn't make sense for websockets"""
         pass
 
     def get_compression_options(self):
@@ -72,7 +74,7 @@ class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
         self.log.debug("Initializing websocket connection %s", self.request.path)
         self.session = Session(config=self.config)
         # TODO: make kernel client class configurable
-        self.client = KernelGatewayWSClient()
+        self.gateway = KernelGatewayWSClient()
 
     @gen.coroutine
     def get(self, kernel_id, *args, **kwargs):
@@ -81,36 +83,61 @@ class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
         super(WebSocketChannelsHandler, self).get(kernel_id=kernel_id, *args, **kwargs)
 
     def open(self, kernel_id, *args, **kwargs):
-        '''Handle web socket connection open to notebook server.'''
-        # Delegate to web socket handler
-        self.client.on_open(
+        """Handle web socket connection open to notebook server and delegate to gateway web socket handler """
+        self.gateway.on_open(
             kernel_id=kernel_id,
             message_callback=self.write_message,
             compression_options=self.get_compression_options()
         )
 
     def on_message(self, message):
-        '''Forward message to web socket handler.'''
-        self.client.on_message(message)
+        """Forward message to gateway web socket handler."""
+        self.gateway.on_message(message)
 
-    def write_message(self, message):
-        '''Send message back to client.'''
-        super(WebSocketChannelsHandler, self).write_message(message)
+    def write_message(self, message, binary=False):
+        """Send message back to notebook client.  This is called via callback from self.gateway._read_messages."""
+        if self.ws_connection:  # prevent WebSocketClosedError
+            super(WebSocketChannelsHandler, self).write_message(message, binary=binary)
+        elif self.log.isEnabledFor(logging.DEBUG):
+            msg_summary = WebSocketChannelsHandler._get_message_summary(json_decode(utf8(message)))
+            self.log.debug("Notebook client closed websocket connection - message dropped: {}".format(msg_summary))
 
     def on_close(self):
         self.log.debug("Closing websocket connection %s", self.request.path)
-        self.client.on_close()
+        self.gateway.on_close()
         super(WebSocketChannelsHandler, self).on_close()
 
-class KernelGatewayWSClient(LoggingConfigurable):
-    '''Proxy web socket connection to a kernel gateway.'''
+    @staticmethod
+    def _get_message_summary(message):
+        summary = []
+        message_type = message['msg_type']
+        summary.append('type: {}'.format(message_type))
 
-    def __init__(self):
+        if message_type == 'status':
+            summary.append(', state: {}'.format(message['content']['execution_state']))
+        elif message_type == 'error':
+            summary.append(', {}:{}:{}'.format(message['content']['ename'],
+                                              message['content']['evalue'],
+                                              message['content']['traceback']))
+        else:
+            summary.append(', ...')  # don't display potentially sensitive data
+
+        return ''.join(summary)
+
+
+class KernelGatewayWSClient(LoggingConfigurable):
+    """Proxy web socket connection to a kernel/enterprise gateway."""
+
+    def __init__(self, **kwargs):
+        super(KernelGatewayWSClient, self).__init__(**kwargs)
+        self.kernel_id = None
         self.ws = None
         self.ws_future = Future()
+        self.ws_future_cancelled = False
 
     @gen.coroutine
     def _connect(self, kernel_id):
+        self.kernel_id = kernel_id
         ws_url = url_path_join(
             os.getenv('KG_WS_URL', KG_URL.replace('http', 'ws')),
             '/api/kernels', 
@@ -119,10 +146,10 @@ class KernelGatewayWSClient(LoggingConfigurable):
         )
         self.log.info('Connecting to {}'.format(ws_url))
         parameters = {
-          "headers" : KG_HEADERS,
-          "validate_cert" : VALIDATE_KG_CERT,
-          "connect_timeout" : KG_CONNECT_TIMEOUT,
-          "request_timeout" : KG_REQUEST_TIMEOUT
+          "headers": KG_HEADERS,
+          "validate_cert": VALIDATE_KG_CERT,
+          "connect_timeout": KG_CONNECT_TIMEOUT,
+          "request_timeout": KG_REQUEST_TIMEOUT
         }
         if KG_HTTP_USER:
             parameters["auth_username"] = KG_HTTP_USER
@@ -135,27 +162,44 @@ class KernelGatewayWSClient(LoggingConfigurable):
                 parameters["ca_certs"] = KG_CLIENT_CA
         request = HTTPRequest(ws_url, **parameters)
         self.ws_future = websocket_connect(request)
-        self.ws = yield self.ws_future
-        # TODO: handle connection errors/timeout
+        self.ws_future.add_done_callback(self._connection_done)
+
+    def _connection_done(self, fut):
+        if not self.ws_future_cancelled:  # prevent concurrent.futures._base.CancelledError
+            self.ws = fut.result()
+            self.log.debug("Connection is ready: ws: {}".format(self.ws))
+        else:
+            self.log.warning("Websocket connection has been cancelled via client disconnect before its establishment.  "
+                             "Kernel with ID '{}' may not be terminated on Gateway: {}".format(self.kernel_id, KG_URL))
 
     def _disconnect(self):
         if self.ws is not None:
             # Close connection
             self.ws.close()
         elif not self.ws_future.done():
-            # Cancel pending connection
+            # Cancel pending connection.  Since future.cancel() is a noop on tornado, we'll track cancellation locally
             self.ws_future.cancel()
+            self.ws_future_cancelled = True
+            self.log.debug("_disconnect: ws_future_cancelled: {}".format(self.ws_future_cancelled))
 
     @gen.coroutine
     def _read_messages(self, callback):
-        '''Read messages from server.'''
+        """Read messages from gateway server."""
         while True:
-            message = yield self.ws.read_message()
-            if message is None: break # TODO: handle socket close
-            callback(message)
+            message = None
+            if not self.ws_future_cancelled:
+                try:
+                    message = yield self.ws.read_message()
+                except Exception as e:
+                    self.log.error("Exception reading message from websocket: {}".format(e))  # , exc_info=True)
+                if message is None:
+                    break
+                callback(message)  # pass back to notebook client (see self.on_open and WebSocketChannelsHandler.open)
+            else:  # ws cancelled - stop reading
+                break
 
     def on_open(self, kernel_id, message_callback, **kwargs):
-        '''Web socket connection open.'''
+        """Web socket connection open against gateway server."""
         self._connect(kernel_id)
         loop = IOLoop.current()
         loop.add_future(
@@ -164,7 +208,7 @@ class KernelGatewayWSClient(LoggingConfigurable):
         )
 
     def on_message(self, message):
-        '''Send message to server.'''
+        """Send message to gateway server."""
         if self.ws is None:
             loop = IOLoop.current()
             loop.add_future(
@@ -175,22 +219,26 @@ class KernelGatewayWSClient(LoggingConfigurable):
             self._write_message(message)
 
     def _write_message(self, message):
-        '''Send message to server.'''
-        self.ws.write_message(message)
+        """Send message to gateway server."""
+        try:
+            if not self.ws_future_cancelled:
+                self.ws.write_message(message)
+        except Exception as e:
+            self.log.error("Exception writing message to websocket: {}".format(e))  # , exc_info=True)
 
     def on_close(self):
-        '''Web socket closed event.'''
+        """Web socket closed event."""
         self._disconnect()
 
-#-----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
 # kernel handlers
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 class MainKernelHandler(APIHandler):
     """Replace default MainKernelHandler to enable async lookup of kernels."""
 
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def get(self):
         km = self.kernel_manager
@@ -198,7 +246,6 @@ class MainKernelHandler(APIHandler):
         self.finish(json.dumps(kernels))
 
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def post(self):
         km = self.kernel_manager
@@ -218,11 +265,11 @@ class MainKernelHandler(APIHandler):
         self.set_status(201)
         self.finish(json.dumps(model))
 
+
 class KernelHandler(APIHandler):
     """Replace default KernelHandler to enable async lookup of kernels."""
 
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def get(self, kernel_id):
         km = self.kernel_manager
@@ -233,7 +280,6 @@ class KernelHandler(APIHandler):
         self.finish(json.dumps(model))
 
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def delete(self, kernel_id):
         km = self.kernel_manager
@@ -241,11 +287,11 @@ class KernelHandler(APIHandler):
         self.set_status(204)
         self.finish()
 
+
 class KernelActionHandler(APIHandler):
     """Replace default KernelActionHandler to enable async lookup of kernels."""
 
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def post(self, kernel_id, action):
         km = self.kernel_manager
@@ -265,13 +311,13 @@ class KernelActionHandler(APIHandler):
                 self.write(json.dumps(model))
         self.finish()
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # kernel spec handlers
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
 
 class MainKernelSpecHandler(APIHandler):
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def get(self):
         ksm = self.kernel_spec_manager
@@ -282,9 +328,9 @@ class MainKernelSpecHandler(APIHandler):
         self.set_header("Content-Type", 'application/json')
         self.finish(json.dumps(kernel_specs))
 
+
 class KernelSpecHandler(APIHandler):
     @web.authenticated
-    @json_errors
     @gen.coroutine
     def get(self, kernel_name):
         ksm = self.kernel_spec_manager
@@ -296,9 +342,10 @@ class KernelSpecHandler(APIHandler):
         self.set_header("Content-Type", 'application/json')
         self.finish(json.dumps(kernel_spec))
 
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # URL to handler mappings
-#-----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
 
 from notebook.services.kernels.handlers import _kernel_id_regex, _kernel_action_regex
 from notebook.services.kernelspecs.handlers import kernel_name_regex
