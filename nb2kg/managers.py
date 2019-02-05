@@ -140,6 +140,10 @@ class RemoteKernelManager(MappingKernelManager):
             self.log.info("Request new kernel at: %s" % self.kernels_endpoint)
             kernel_env = {k: v for (k, v) in dict(os.environ).items() if k.startswith('KERNEL_')
                         or k in os.environ.get('KG_ENV_WHITELIST', '').split(",")}
+            # Convey the full path to where this notebook file is located.
+            if path is not None and kernel_env.get('KERNEL_WORKING_DIR') is None:
+                kernel_env['KERNEL_WORKING_DIR'] = self.cwd_for_path(path)
+
             json_body = json_encode({'name': kernel_name, 'env': kernel_env})
 
             response = yield fetch_kg(self.kernels_endpoint, method='POST', body=json_body)
