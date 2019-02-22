@@ -137,7 +137,7 @@ class RemoteKernelManager(MappingKernelManager):
 
         if kernel_id is None:
             kernel_name = kwargs.get('kernel_name', 'python3')
-            self.log.info("Request new kernel at: %s" % self.kernels_endpoint)
+            self.log.debug("Request new kernel at: %s" % self.kernels_endpoint)
             kernel_env = {k: v for (k, v) in dict(os.environ).items() if k.startswith('KERNEL_')
                         or k in os.environ.get('KG_ENV_WHITELIST', '').split(",")}
             # Convey the full path to where this notebook file is located.
@@ -167,12 +167,12 @@ class RemoteKernelManager(MappingKernelManager):
             The uuid of the kernel.
         """
         kernel_url = self._kernel_id_to_url(kernel_id)
-        self.log.info("Request kernel at: %s" % kernel_url)
+        self.log.debug("Request kernel at: %s" % kernel_url)
         try:
             response = yield fetch_kg(kernel_url, method='GET')
         except HTTPError as error:
             if error.code == 404:
-                self.log.info("Kernel not found at: %s" % kernel_url)
+                self.log.debug("Kernel not found at: %s" % kernel_url)
                 self._remove_kernel(kernel_id)
                 kernel = None
             else:
@@ -180,7 +180,7 @@ class RemoteKernelManager(MappingKernelManager):
         else:
             kernel = json_decode(response.body)
             self._kernels[kernel_id] = kernel
-        self.log.info("Kernel retrieved: %s" % kernel)
+        self.log.debug("Kernel retrieved: %s" % kernel)
         raise gen.Return(kernel)
 
     @gen.coroutine
@@ -200,7 +200,7 @@ class RemoteKernelManager(MappingKernelManager):
     @gen.coroutine
     def list_kernels(self, **kwargs):
         """Get a list of kernels."""
-        self.log.info("Request list kernels: %s", kwargs)
+        self.log.debug("Request list kernels: %s", kwargs)
         response = yield fetch_kg(self.kernels_endpoint, method='GET')
         kernels = json_decode(response.body)
         self._kernels = {x['id']:x for x in kernels}
@@ -215,12 +215,11 @@ class RemoteKernelManager(MappingKernelManager):
         kernel_id : uuid
             The id of the kernel to shutdown.
         """
-        self.log.info("Request shutdown kernel: %s", kernel_id)
+        self.log.debug("Request shutdown kernel: %s", kernel_id)
         kernel_url = self._kernel_id_to_url(kernel_id)
-        self.log.info("Request delete kernel at: %s", kernel_url)
+        self.log.debug("Request delete kernel at: %s", kernel_url)
         response = yield fetch_kg(kernel_url, method='DELETE')
-        self.log.info("Shutdown kernel response: %d %s",
-            response.code, response.reason)
+        self.log.debug("Shutdown kernel response: %d %s", response.code, response.reason)
         self._remove_kernel(kernel_id)
 
     @gen.coroutine
@@ -232,11 +231,11 @@ class RemoteKernelManager(MappingKernelManager):
         kernel_id : uuid
             The id of the kernel to restart.
         """
-        self.log.info("Request restart kernel: %s", kernel_id)
+        self.log.debug("Request restart kernel: %s", kernel_id)
         kernel_url = self._kernel_id_to_url(kernel_id) + '/restart'
-        self.log.info("Request restart kernel at: %s", kernel_url)
+        self.log.debug("Request restart kernel at: %s", kernel_url)
         response = yield fetch_kg(kernel_url, method='POST', body=json_encode({}))
-        self.log.info("Restart kernel response: %d %s", response.code, response.reason)
+        self.log.debug("Restart kernel response: %d %s", response.code, response.reason)
 
     @gen.coroutine
     def interrupt_kernel(self, kernel_id, **kwargs):
@@ -247,11 +246,11 @@ class RemoteKernelManager(MappingKernelManager):
         kernel_id : uuid
             The id of the kernel to interrupt.
         """
-        self.log.info("Request interrupt kernel: %s", kernel_id)
+        self.log.debug("Request interrupt kernel: %s", kernel_id)
         kernel_url = self._kernel_id_to_url(kernel_id) + '/interrupt'
-        self.log.info("Request interrupt kernel at: %s", kernel_url)
+        self.log.debug("Request interrupt kernel at: %s", kernel_url)
         response = yield fetch_kg(kernel_url, method='POST', body=json_encode({}))
-        self.log.info("Interrupt kernel response: %d %s", response.code, response.reason)
+        self.log.debug("Interrupt kernel response: %d %s", response.code, response.reason)
 
     def shutdown_all(self):
         """Shutdown all kernels."""
@@ -261,12 +260,12 @@ class RemoteKernelManager(MappingKernelManager):
         client = HTTPClient()
         for kernel_id in self._kernels.keys():
             kernel_url = url_path_join(KG_URL, self._kernel_id_to_url(kernel_id))
-            self.log.info("Request delete kernel at: %s", kernel_url)
+            self.log.debug("Request delete kernel at: %s", kernel_url)
             try:
                 response = client.fetch(kernel_url, **kwargs)
             except HTTPError:
                 pass
-            self.log.info("Delete kernel response: %d %s", 
+            self.log.debug("Delete kernel response: %d %s",
                 response.code, response.reason)
         client.close()
 
@@ -281,10 +280,19 @@ class RemoteKernelSpecManager(KernelSpecManager):
     def kernelspecs_endpoint_default(self):
         return os.getenv(self.kernelspecs_endpoint_env, '/api/kernelspecs')
 
+    kernelspecs_resource_endpoint_env = 'KG_KERNELSPECS_RESOURCE_ENDPOINT'
+    kernelspecs_resource_endpoint = Unicode(config=True,
+        help="""The kernel gateway API endpoint for accessing kernelspecs resources 
+        (KG_KERNELSPECS_RESOURCE_ENDPOINT env var)""")
+
+    @default('kernelspecs_resource_endpoint')
+    def kernelspecs_resource_endpoint_default(self):
+        return os.getenv(self.kernelspecs_resource_endpoint_env, '/kernelspecs')
+
     @gen.coroutine
     def list_kernel_specs(self):
         """Get a list of kernel specs."""
-        self.log.info("Request list kernel specs at: %s", self.kernelspecs_endpoint)
+        self.log.debug("Request list kernel specs at: %s", self.kernelspecs_endpoint)
         response = yield fetch_kg(self.kernelspecs_endpoint, method='GET')
         kernel_specs = json_decode(response.body)
         raise gen.Return(kernel_specs)
@@ -299,18 +307,42 @@ class RemoteKernelSpecManager(KernelSpecManager):
             The name of the kernel.
         """
         kernel_spec_url = url_path_join(self.kernelspecs_endpoint, str(kernel_name))
-        self.log.info("Request kernel spec at: %s" % kernel_spec_url)
+        self.log.debug("Request kernel spec at: %s" % kernel_spec_url)
         try:
             response = yield fetch_kg(kernel_spec_url, method='GET')
         except HTTPError as error:
             if error.code == 404:
-                self.log.info("Kernel spec not found at: %s" % kernel_spec_url)
+                self.log.warning("Kernel spec not found at: %s" % kernel_spec_url)
                 kernel_spec = None
             else:
                 raise
         else:
             kernel_spec = json_decode(response.body)
         raise gen.Return(kernel_spec)
+
+    @gen.coroutine
+    def get_kernel_spec_resource(self, kernel_name, path):
+        """Get kernel spec for kernel_name.
+
+        Parameters
+        ----------
+        kernel_name : str
+            The name of the kernel.
+        path : str
+            The name of the desired resource
+        """
+        kernel_spec_url = url_path_join(self.kernelspecs_resource_endpoint, str(kernel_name), str(path))
+        self.log.debug("Request kernel spec resource '{}' at: {}".format(path,kernel_spec_url))
+        try:
+            response = yield fetch_kg(kernel_spec_url, method='GET')
+        except HTTPError as error:
+            if error.code == 404:
+                kernel_spec_resource = None
+            else:
+                raise
+        else:
+            kernel_spec_resource = response.body
+        raise gen.Return(kernel_spec_resource)
 
 
 class SessionManager(BaseSessionManager):

@@ -4,6 +4,7 @@
 import os
 import json
 import logging
+import mimetypes
 
 from notebook.base.handlers import APIHandler, IPythonHandler
 from notebook.utils import url_path_join
@@ -325,9 +326,6 @@ class MainKernelSpecHandler(APIHandler):
     def get(self):
         ksm = self.kernel_spec_manager
         kernel_specs = yield gen.maybe_future(ksm.list_kernel_specs())
-        # TODO: Remove resources until we support them
-        for name, spec in kernel_specs['kernelspecs'].items():
-            spec['resources'] = {}
         self.set_header("Content-Type", 'application/json')
         self.finish(json.dumps(kernel_specs))
 
@@ -340,15 +338,26 @@ class KernelSpecHandler(APIHandler):
         kernel_spec = yield ksm.get_kernel_spec(kernel_name)
         if kernel_spec is None:
             raise web.HTTPError(404, u'Kernel spec %s not found' % kernel_name)
-        # TODO: Remove resources until we support them
-        kernel_spec['resources'] = {}
         self.set_header("Content-Type", 'application/json')
         self.finish(json.dumps(kernel_spec))
+
+
+class KernelSpecResourceHandler(APIHandler):
+    @web.authenticated
+    @gen.coroutine
+    def get(self, kernel_name, path, include_body=True):
+        ksm = self.kernel_spec_manager
+        kernel_spec_res = yield ksm.get_kernel_spec_resource(kernel_name, path)
+        if kernel_spec_res is None:
+            self.log.warning("Kernelspec resource '{}' for '{}' not found.  Gateway"
+                                    " may not support resource serving.".format(path, kernel_name))
+        else:
+            self.set_header("Content-Type", mimetypes.guess_type(path)[0])
+        self.finish(kernel_spec_res)
 
 # -----------------------------------------------------------------------------
 # URL to handler mappings
 # -----------------------------------------------------------------------------
-
 
 from notebook.services.kernels.handlers import _kernel_id_regex, _kernel_action_regex
 from notebook.services.kernelspecs.handlers import kernel_name_regex
@@ -360,6 +369,5 @@ default_handlers = [
     (r"/api/kernels/%s/channels" % _kernel_id_regex, WebSocketChannelsHandler),
     (r"/api/kernelspecs", MainKernelSpecHandler),
     (r"/api/kernelspecs/%s" % kernel_name_regex, KernelSpecHandler),
-    # TODO: support kernel spec resources
-    # (r"/kernelspecs/%s/(?P<path>.*)" % kernel_name_regex, KernelSpecResourceHandler),
+    (r"/kernelspecs/%s/(?P<path>.*)" % kernel_name_regex, KernelSpecResourceHandler),
 ]
