@@ -84,7 +84,7 @@ class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
     def get(self, kernel_id, *args, **kwargs):
         self.authenticate()
         self.kernel_id = cast_unicode(kernel_id, 'ascii')
-        super(WebSocketChannelsHandler, self).get(kernel_id=kernel_id, *args, **kwargs)
+        yield gen.maybe_future(super(WebSocketChannelsHandler, self).get(kernel_id=kernel_id, *args, **kwargs))
 
     def open(self, kernel_id, *args, **kwargs):
         """Handle web socket connection open to notebook server and delegate to gateway web socket handler """
