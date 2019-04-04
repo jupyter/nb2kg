@@ -11,7 +11,7 @@ from notebook.utils import url_path_join
 
 from tornado import gen, web
 from tornado.concurrent import Future
-from tornado.ioloop import IOLoop
+from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.websocket import WebSocketHandler, websocket_connect
 from tornado.httpclient import HTTPRequest
 from tornado.escape import url_escape, json_decode, utf8
@@ -40,6 +40,9 @@ KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 # Get env variables to handle timeout of request and connection
 KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
 KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
+
+# Keepalive ping interval (default: 30 seconds)
+KG_WS_PING_INTERVAL_SECS = int(os.getenv('KG_WS_PING_INTERVAL_SECS', 30))
 
 
 class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
@@ -87,8 +90,18 @@ class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
         self.kernel_id = cast_unicode(kernel_id, 'ascii')
         yield gen.maybe_future(super(WebSocketChannelsHandler, self).get(kernel_id=kernel_id, *args, **kwargs))
 
+    def send_ping(self):
+        if self.ws_connection is None and self.ping_callback is not None:
+            self.ping_callback.stop()
+            return
+
+        self.ping(b'')
+
     def open(self, kernel_id, *args, **kwargs):
         """Handle web socket connection open to notebook server and delegate to gateway web socket handler """
+        self.ping_callback = PeriodicCallback(self.send_ping, KG_WS_PING_INTERVAL_SECS * 1000)
+        self.ping_callback.start()
+
         self.gateway.on_open(
             kernel_id=kernel_id,
             message_callback=self.write_message,
