@@ -21,9 +21,10 @@ from traitlets import Instance, Unicode, default
 # for a server extension.
 KG_URL = os.getenv('KG_URL', 'http://127.0.0.1:8888/')
 KG_HEADERS = json.loads(os.getenv('KG_HEADERS', '{}'))
-KG_HEADERS.update({
-    'Authorization': 'token {}'.format(os.getenv('KG_AUTH_TOKEN', ''))
-})
+if 'Authorization' not in KG_HEADERS.keys():
+    KG_HEADERS.update({
+        'Authorization': 'token {}'.format(os.getenv('KG_AUTH_TOKEN', ''))
+    })
 VALIDATE_KG_CERT = os.getenv('VALIDATE_KG_CERT') not in ['no', 'false']
 
 KG_CLIENT_KEY = os.getenv('KG_CLIENT_KEY')
