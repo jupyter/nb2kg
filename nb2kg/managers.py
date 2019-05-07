@@ -34,8 +34,8 @@ KG_CLIENT_CA = os.getenv('KG_CLIENT_CA')
 KG_HTTP_USER = os.getenv('KG_HTTP_USER')
 KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 
-KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
-KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
+KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 60.0))
+KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 60.0))
 
 
 def load_connection_args(**kwargs):

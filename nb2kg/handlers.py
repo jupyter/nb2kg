@@ -38,8 +38,8 @@ KG_HTTP_USER = os.getenv('KG_HTTP_USER')
 KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 
 # Get env variables to handle timeout of request and connection
-KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 20.0))
-KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 20.0))
+KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 60.0))
+KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 60.0))
 
 # Keepalive ping interval (default: 30 seconds)
 KG_WS_PING_INTERVAL_SECS = int(os.getenv('KG_WS_PING_INTERVAL_SECS', 30))
