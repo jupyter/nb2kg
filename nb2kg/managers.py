@@ -36,6 +36,13 @@ KG_HTTP_PASS = os.getenv('KG_HTTP_PASS')
 
 KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 60.0))
 KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 60.0))
+KG_LAUNCH_TIMEOUT_PAD = int(os.getenv('KG_LAUNCH_TIMEOUT_PAD', 2))
+
+KERNEL_LAUNCH_TIMEOUT = int(os.getenv('KERNEL_LAUNCH_TIMEOUT', 40))
+
+# Ensure that request timeout is at least "pad" greater than launch timeout.
+if KG_REQUEST_TIMEOUT < float(KERNEL_LAUNCH_TIMEOUT + KG_LAUNCH_TIMEOUT_PAD):
+    KG_REQUEST_TIMEOUT = float(KERNEL_LAUNCH_TIMEOUT + KG_LAUNCH_TIMEOUT_PAD)
 
 
 def load_connection_args(**kwargs):
@@ -54,6 +61,7 @@ def load_connection_args(**kwargs):
         kwargs['auth_password'] = kwargs.get('auth_password', KG_HTTP_PASS)
     return kwargs
 
+
 @gen.coroutine
 def fetch_kg(endpoint, **kwargs):
     """Make an async request to kernel gateway endpoint."""
@@ -64,6 +72,7 @@ def fetch_kg(endpoint, **kwargs):
 
     response = yield client.fetch(url, **kwargs)
     raise gen.Return(response)
+
 
 class RemoteKernelManager(MappingKernelManager):
     """Kernel manager that supports remote kernels hosted by Jupyter 
