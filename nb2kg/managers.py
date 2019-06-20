@@ -38,7 +38,9 @@ KG_CONNECT_TIMEOUT = float(os.getenv('KG_CONNECT_TIMEOUT', 60.0))
 KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 60.0))
 KG_LAUNCH_TIMEOUT_PAD = int(os.getenv('KG_LAUNCH_TIMEOUT_PAD', 2))
 
+# Ensure KERNEL_LAUNCH_TIMEOUT has a default value.
 KERNEL_LAUNCH_TIMEOUT = int(os.getenv('KERNEL_LAUNCH_TIMEOUT', 40))
+os.environ['KERNEL_LAUNCH_TIMEOUT'] = str(KERNEL_LAUNCH_TIMEOUT)
 
 # Ensure that request timeout is at least "pad" greater than launch timeout.
 if KG_REQUEST_TIMEOUT < float(KERNEL_LAUNCH_TIMEOUT + KG_LAUNCH_TIMEOUT_PAD):
