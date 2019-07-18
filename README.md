@@ -1,5 +1,21 @@
 # Jupyter Notebook Extension to Kernel Gateway (nb2kg)
 
+## Note: this repository is now part of Jupyter Notebook 6.0!
+
+As of Jupyter Notebook 6.0 the functionality in this repository is now part of the notebook server, and can be accessed via the following command line flag:
+
+```
+--gateway-url=<Unicode> (GatewayClient.url)
+    Default: None
+    The url of the Kernel or Enterprise Gateway server where
+    kernel specifications are defined and kernel management
+    takes place. If defined, this Notebook server acts as a
+    proxy for all kernel management and kernel
+    specification retrieval. (JUPYTER_GATEWAY_URL env var)
+```
+
+This means that there is no need to install this package (unless using notebook server < 6.0).
+
 ## Overview
 
 **nb2kg** is a [Jupyter Notebook](https://github.com/jupyter/notebook) [server extension](http://jupyter-notebook.readthedocs.io/en/latest/extending/handlers.html#writing-a-notebook-server-extension)
