@@ -5,6 +5,7 @@ import os
 import json
 import logging
 import mimetypes
+import random
 
 from notebook.base.handlers import APIHandler, IPythonHandler
 from notebook.utils import url_path_join
@@ -43,6 +44,11 @@ KG_REQUEST_TIMEOUT = float(os.getenv('KG_REQUEST_TIMEOUT', 60.0))
 
 # Keepalive ping interval (default: 30 seconds)
 KG_WS_PING_INTERVAL_SECS = int(os.getenv('KG_WS_PING_INTERVAL_SECS', 30))
+
+# Retries in incidental websocket disconnection (default: 5 retries with exponential interval from 1 second)
+KG_WS_RETRY_MAX = int(os.getenv('KG_WS_RETRY_MAX', 5))
+KG_WS_RETRY_INTERVAL = float(os.getenv('KG_WS_RETRY_INTERVAL_DEFAULT', 1.0))
+KG_WS_RETRY_INTERVAL_MAX = 30.0
 
 
 class WebSocketChannelsHandler(WebSocketHandler, IPythonHandler):
@@ -154,6 +160,7 @@ class KernelGatewayWSClient(LoggingConfigurable):
         self.ws = None
         self.ws_future = Future()
         self.disconnected = False
+        self.retry = 0
 
     @gen.coroutine
     def _connect(self, kernel_id):
@@ -189,6 +196,7 @@ class KernelGatewayWSClient(LoggingConfigurable):
     def _connection_done(self, fut):
         if not self.disconnected and fut.exception() is None:  # prevent concurrent.futures._base.CancelledError
             self.ws = fut.result()
+            self.retry = 0
             self.log.debug("Connection is ready: ws: {}".format(self.ws))
         else:
             self.log.warning("Websocket connection has been closed via client disconnect or due to error.  "
@@ -222,8 +230,15 @@ class KernelGatewayWSClient(LoggingConfigurable):
             else:  # ws cancelled - stop reading
                 break
 
-        if not self.disconnected: # NOTE(esevan): if websocket is not disconnected by client, try to reconnect.
-            self.log.info("Attempting to re-establish the connection to Gateway: {}".format(self.kernel_id))
+        # NOTE(esevan): if websocket is not disconnected by client, try to reconnect.
+        if not self.disconnected and self.retry < KG_WS_RETRY_MAX:
+            # exponential backoff to retry
+            jitter = random.randint(10, 100) * 0.01
+            retry_interval = min(KG_WS_RETRY_INTERVAL * (2 ** self.retry), KG_WS_RETRY_INTERVAL_MAX) + jitter
+            self.retry += 1
+            self.log.info("Attempting to re-establish the connection to Gateway in %s secs (%s/%s): %s",
+                          retry_interval, self.retry, KG_WS_RETRY_MAX, self.kernel_id)
+            yield gen.sleep(retry_interval)
             self._connect(self.kernel_id)
             loop = IOLoop.current()
             loop.add_future(self.ws_future, lambda future: self._read_messages(callback))
